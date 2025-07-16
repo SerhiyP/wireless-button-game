@@ -4,7 +4,10 @@
 
 RF24 radio(9, 10);
 
-const byte address[6] = "00001";
+const byte displayAddress[6] = "00001";    // Display receives on this address
+const byte redButtonAddress[6] = "00002";  // Red button receives on this address
+const byte blueButtonAddress[6] = "00003"; // Blue button receives on this address
+
 const int redLedPin = 4;
 const int blueLedPin = 5;
 const int resetPin = 6;
@@ -13,15 +16,14 @@ const int readyLedPin = 3;
 const int connectionLedPin = 8;
 
 bool winnerChosen = false;
-char incoming[32];
-char outgoing[32];
+char incoming[16];
+char outgoing[16];
 unsigned long lastResetTime = 0;
 unsigned long resetDebounceDelay = 300;
 unsigned long gameStartTime = 0;
+unsigned long gameEndTime = 0;
 bool gameActive = false;
 bool systemReady = false;
-unsigned long lastReadyBroadcast = 0;
-unsigned long readyBroadcastInterval = 1000;
 
 void setup() {
   pinMode(redLedPin, OUTPUT);
@@ -58,8 +60,7 @@ void setup() {
   }
 
   radio.setPALevel(RF24_PA_HIGH);
-  radio.openReadingPipe(0, address);
-  radio.openWritingPipe(address);
+  radio.openReadingPipe(0, displayAddress);
   radio.startListening();
   
   digitalWrite(connectionLedPin, HIGH);
@@ -86,16 +87,18 @@ void loop() {
     if (strcmp(incoming, "RED") == 0) {
       digitalWrite(redLedPin, HIGH);
       winnerChosen = true;
-      sendWinConfirmation("WIN_RED");
-      unsigned long gameTime = millis() - gameStartTime;
+      gameEndTime = millis();
+      sendToRedButton("WIN_RED");
+      unsigned long gameTime = gameEndTime - gameStartTime;
       Serial.print("ЧЕРВОНИЙ ПЕРЕМІГ! Час гри: ");
       Serial.print(gameTime);
       Serial.println(" мс");
     } else if (strcmp(incoming, "BLUE") == 0) {
       digitalWrite(blueLedPin, HIGH);
       winnerChosen = true;
-      sendWinConfirmation("WIN_BLUE");
-      unsigned long gameTime = millis() - gameStartTime;
+      gameEndTime = millis();
+      sendToBlueButton("WIN_BLUE");
+      unsigned long gameTime = gameEndTime - gameStartTime;
       Serial.print("СИНІЙ ПЕРЕМІГ! Час гри: ");
       Serial.print(gameTime);
       Serial.println(" мс");
@@ -123,7 +126,11 @@ void resetGame() {
   digitalWrite(statusLedPin, LOW);
   digitalWrite(readyLedPin, HIGH);
   
-  Serial.println("=== ГРА ПОЧАЛАСЯ! ===");
+  // Send reset signal to both buttons
+  sendToRedButton("GAME_RESET");
+  sendToBlueButton("GAME_RESET");
+  
+  Serial.println("=== НОВА ГРА ПОЧАЛАСЯ! ===");
   Serial.println("Натисніть червону або синю кнопку!");
   
   delay(100);
@@ -131,27 +138,16 @@ void resetGame() {
 }
 
 void broadcastSystemReady() {
-  radio.stopListening();
-  strcpy(outgoing, "SYSTEM_READY");
-  
-  digitalWrite(connectionLedPin, LOW);
-  delay(10);
-  
-  bool result = radio.write(&outgoing, sizeof(outgoing));
-  
-  digitalWrite(connectionLedPin, HIGH);
-  
-  if (result) {
-    Serial.println("SYSTEM_READY signal broadcasted");
-  } else {
-    Serial.println("Failed to broadcast SYSTEM_READY");
-  }
-  
-  radio.startListening();
+  // Send SYSTEM_READY to both buttons individually
+  sendToRedButton("SYSTEM_READY");
+  delay(50);
+  sendToBlueButton("SYSTEM_READY");
+  Serial.println("SYSTEM_READY signals sent to both buttons");
 }
 
-void sendWinConfirmation(const char* message) {
+void sendToRedButton(const char* message) {
   radio.stopListening();
+  radio.openWritingPipe(redButtonAddress);
   strcpy(outgoing, message);
   
   digitalWrite(connectionLedPin, LOW);
@@ -162,10 +158,33 @@ void sendWinConfirmation(const char* message) {
   digitalWrite(connectionLedPin, HIGH);
   
   if (result) {
-    Serial.print("Win confirmation sent: ");
+    Serial.print("Message sent to RED button: ");
     Serial.println(message);
   } else {
-    Serial.print("Failed to send win confirmation: ");
+    Serial.print("Failed to send to RED button: ");
+    Serial.println(message);
+  }
+  
+  radio.startListening();
+}
+
+void sendToBlueButton(const char* message) {
+  radio.stopListening();
+  radio.openWritingPipe(blueButtonAddress);
+  strcpy(outgoing, message);
+  
+  digitalWrite(connectionLedPin, LOW);
+  delay(10);
+  
+  bool result = radio.write(&outgoing, sizeof(outgoing));
+  
+  digitalWrite(connectionLedPin, HIGH);
+  
+  if (result) {
+    Serial.print("Message sent to BLUE button: ");
+    Serial.println(message);
+  } else {
+    Serial.print("Failed to send to BLUE button: ");
     Serial.println(message);
   }
   

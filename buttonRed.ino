@@ -4,7 +4,9 @@
 
 RF24 radio(9, 10);
 
-const byte address[6] = "00001";
+const byte displayAddress[6] = "00001";    // Send button presses to display
+const byte redButtonAddress[6] = "00002";  // Receive messages on this address
+
 const int buttonPin = 2;
 const int winnerLedPin = 4;
 const int readyLedPin = 3;
@@ -14,12 +16,13 @@ bool sent = false;
 bool buttonPressed = false;
 bool systemReady = false;
 bool winner = false;
-char incoming[32];
-char outgoing[32];
+char incoming[16];
+char outgoing[16];
 unsigned long lastDebounceTime = 0;
 unsigned long debounceDelay = 50;
 unsigned long lastTransmissionTime = 0;
 unsigned long transmissionTimeout = 5000;
+unsigned long systemReadyTimeout = 10000;
 
 void setup() {
   pinMode(buttonPin, INPUT_PULLUP);
@@ -52,8 +55,8 @@ void setup() {
   }
   
   radio.setPALevel(RF24_PA_HIGH);
-  radio.openWritingPipe(address);
-  radio.openReadingPipe(0, address);
+  radio.openWritingPipe(displayAddress);
+  radio.openReadingPipe(0, redButtonAddress);
   radio.startListening();
   
   digitalWrite(connectionLedPin, HIGH);
@@ -92,8 +95,9 @@ void loop() {
 
 void waitForSystemReady() {
   Serial.println("Waiting for SYSTEM_READY signal...");
+  unsigned long startTime = millis();
   
-  while (!systemReady) {
+  while (!systemReady && (millis() - startTime < systemReadyTimeout)) {
     if (radio.available()) {
       memset(incoming, 0, sizeof(incoming));
       radio.read(&incoming, sizeof(incoming));
@@ -106,6 +110,7 @@ void waitForSystemReady() {
         systemReady = true;
         digitalWrite(readyLedPin, HIGH);
         Serial.println("SYSTEM_READY received! Button is now active.");
+        break;
       }
     }
     
@@ -116,6 +121,12 @@ void waitForSystemReady() {
     }
     
     delay(10);
+  }
+  
+  if (!systemReady) {
+    Serial.println("Timeout waiting for SYSTEM_READY - continuing anyway");
+    systemReady = true;
+    digitalWrite(readyLedPin, HIGH);
   }
 }
 
@@ -131,6 +142,9 @@ void checkForMessages() {
     if (strcmp(incoming, "WIN_RED") == 0) {
       winner = true;
       Serial.println("WIN_RED received! This button won!");
+    } else if (strcmp(incoming, "GAME_RESET") == 0) {
+      resetForNewGame();
+      Serial.println("GAME_RESET received! Ready for new game.");
     } else if (strcmp(incoming, "SYSTEM_READY") == 0) {
       if (!systemReady) {
         systemReady = true;
@@ -139,6 +153,13 @@ void checkForMessages() {
       }
     }
   }
+}
+
+void resetForNewGame() {
+  winner = false;
+  sent = false;
+  digitalWrite(winnerLedPin, LOW);
+  digitalWrite(readyLedPin, HIGH);
 }
 
 void sendButtonPress() {
