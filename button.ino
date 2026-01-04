@@ -1,11 +1,37 @@
+// =================================================================================
+// ==CONFIGURATION==
+// Un-comment the block for the button you want to upload this sketch to.
+// =================================================================================
+
+// --- RED BUTTON ---
+// #define BUTTON_COLOR "RED"
+// #define BUTTON_ADDRESS "00002"
+// #define WIN_CONFIRMATION "WIN_RED"
+
+// --- BLUE BUTTON ---
+// #define BUTTON_COLOR "BLUE"
+// #define BUTTON_ADDRESS "00003"
+// #define WIN_CONFIRMATION "WIN_BLUE"
+
+// --- GREEN BUTTON ---
+#define BUTTON_COLOR "GREEN"
+#define BUTTON_ADDRESS "00004"
+#define WIN_CONFIRMATION "WIN_GREEN"
+
+// =================================================================================
+
 #include <SPI.h>
 #include <nRF24L01.h>
 #include <RF24.h>
 
+#ifndef BUTTON_COLOR
+#error "Button configuration is not defined. Please un-comment one of the button blocks above."
+#endif
+
 RF24 radio(9, 10);
 
-const byte displayAddress[6] = "00001";     // Send button presses to display
-const byte blueButtonAddress[6] = "00003";  // Receive messages on this address
+const byte displayAddress[6] = "00001";
+const byte deviceAddress[6] = BUTTON_ADDRESS;
 
 const int buttonPin = 2;
 const int winnerLedPin = 4;
@@ -35,7 +61,8 @@ void setup() {
   digitalWrite(connectionLedPin, LOW);
   
   Serial.begin(9600);
-  Serial.println("Blue Button Transmitter Starting...");
+  Serial.print(BUTTON_COLOR);
+  Serial.println(" Button Transmitter Starting...");
   
   digitalWrite(connectionLedPin, HIGH);
   delay(100);
@@ -56,14 +83,15 @@ void setup() {
   
   radio.setPALevel(RF24_PA_HIGH);
   radio.openWritingPipe(displayAddress);
-  radio.openReadingPipe(0, blueButtonAddress);
+  radio.openReadingPipe(0, deviceAddress);
   radio.startListening();
   
   digitalWrite(connectionLedPin, HIGH);
   
   waitForSystemReady();
   
-  Serial.println("Blue Button Ready!");
+  Serial.print(BUTTON_COLOR);
+  Serial.println(" Button Ready!");
 }
 
 void loop() {
@@ -139,9 +167,10 @@ void checkForMessages() {
     delay(10);
     digitalWrite(connectionLedPin, HIGH);
     
-    if (strcmp(incoming, "WIN_BLUE") == 0) {
+    if (strcmp(incoming, WIN_CONFIRMATION) == 0) {
       winner = true;
-      Serial.println("WIN_BLUE received! This button won!");
+      Serial.print(WIN_CONFIRMATION);
+      Serial.println(" received! This button won!");
     } else if (strcmp(incoming, "GAME_RESET") == 0) {
       resetForNewGame();
       Serial.println("GAME_RESET received! Ready for new game.");
@@ -164,9 +193,11 @@ void resetForNewGame() {
 
 void sendButtonPress() {
   radio.stopListening();
-  strcpy(outgoing, "BLUE");
+  strcpy(outgoing, BUTTON_COLOR);
   
-  Serial.println("Sending BLUE signal...");
+  Serial.print("Sending ");
+  Serial.print(BUTTON_COLOR);
+  Serial.println(" signal...");
   
   digitalWrite(connectionLedPin, LOW);
   delay(10);
@@ -176,11 +207,14 @@ void sendButtonPress() {
   digitalWrite(connectionLedPin, HIGH);
   
   if (result) {
-    Serial.println("BLUE signal sent successfully!");
+    Serial.print(BUTTON_COLOR);
+    Serial.println(" signal sent successfully!");
     sent = true;
     lastTransmissionTime = millis();
   } else {
-    Serial.println("Failed to send BLUE signal!");
+    Serial.print("Failed to send ");
+    Serial.print(BUTTON_COLOR);
+    Serial.println(" signal!");
   }
   
   radio.startListening();
