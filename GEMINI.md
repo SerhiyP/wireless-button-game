@@ -50,12 +50,12 @@ The project is divided into two main Arduino sketches:
 
 ## Development Conventions
 
--   **Communication Protocol:** The system uses a custom message-based protocol over the nRF24L01 radios.
-    -   `display` unit broadcasts `SYSTEM_READY` to signal that the buttons can be activated.
-    -   `button` units send `RED`, `BLUE`, or `GREEN` when pressed.
-    -   `display` confirms the winner by sending `WIN_RED`, `WIN_BLUE`, or `WIN_GREEN` back to the corresponding button.
-    -   `display` sends `GAME_RESET` to all buttons when a new game is started.
--   **Radio Addresses:** Each device has a unique 5-byte address for communication:
+-   **Communication Protocol:** The system uses a custom message-based protocol over the nRF24L01 radios. To improve maintainability and scalability, all protocol messages (e.g., "RED", "SYSTEM_READY", "WIN_RED") are now defined as string constants (e.g., `MSG_RED`, `MSG_SYSTEM_READY`) in `display.ino`.
+    -   `display` unit broadcasts `MSG_SYSTEM_READY` to signal that the buttons can be activated.
+    -   `button` units send `MSG_RED`, `MSG_BLUE`, or `MSG_GREEN` when pressed.
+    -   `display` confirms the winner by sending `MSG_WIN_RED`, `MSG_WIN_BLUE`, or `MSG_WIN_GREEN` back to the corresponding button.
+    -   `display` sends `MSG_GAME_RESET` to all buttons when a new game is started.
+-   **Radio Addresses:** Each device has a unique 5-byte address for communication. While these addresses are still defined as constants (e.g., `redButtonAddress`), their management, along with associated LED pins and other button-specific data, is now centralized in `display.ino` within a `Button` struct and a `buttons` array. This structure significantly enhances scalability, making it easy to add or remove buttons by simply modifying the `buttons` array.
     -   Display: `"00001"`
     -   Red Button: `"00002"`
     -   Blue Button: `"00003"`
