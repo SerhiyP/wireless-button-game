@@ -82,6 +82,7 @@ void setup() {
   }
   
   radio.setPALevel(RF24_PA_LOW);
+  radio.setRetries(5, 15);  // 1500µs delay, 15 retries for reliable communication
   radio.openWritingPipe(displayAddress);
   radio.openReadingPipe(0, deviceAddress);
   radio.startListening();

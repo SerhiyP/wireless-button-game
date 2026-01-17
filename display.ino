@@ -93,6 +93,7 @@ void setup() {
   }
 
   radio.setPALevel(RF24_PA_LOW);
+  radio.setRetries(5, 15);  // 1500µs delay, 15 retries for reliable communication
   radio.openReadingPipe(0, displayAddress);
   radio.startListening();
   
@@ -109,6 +110,11 @@ void handleWinner(const Button& winner) {
     digitalWrite(winner.ledPin, HIGH);
     winnerChosen = true;
     gameEndTime = millis();
+    
+    // Small delay to allow the button to switch back to listening mode
+    // after it sent its button press message
+    delay(500);
+    
     sendMessage(winner.address, winner.winMessage);
     unsigned long gameTime = gameEndTime - gameStartTime;
     Serial.print(winner.displayName);
@@ -153,6 +159,9 @@ void loop() {
 }
 
 void resetGame() {
+  // Clear any stale messages from the radio buffer
+  radio.flush_rx();
+  
   winnerChosen = false;
   gameActive = true;
   gameStartTime = millis();
@@ -205,6 +214,7 @@ void sendMessage(const byte* address, const char* message) {
   }
 
   radio.startListening();
+  delay(10);  // Allow radio to reset before next transmission
 }
 
 void updateLEDs() {
