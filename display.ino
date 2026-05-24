@@ -7,17 +7,23 @@ RF24 radio(9, 10);
 const byte displayAddress[6] = "00001";    // Display receives on this address
 
 // Button Radio Addresses
-const byte redButtonAddress[6] = "00002";
-const byte blueButtonAddress[6] = "00003";
-const byte greenButtonAddress[6] = "00004";
+const byte redButtonAddress[6]    = "00002";
+const byte blueButtonAddress[6]   = "00003";
+const byte greenButtonAddress[6]  = "00004";
+const byte yellowButtonAddress[6] = "00005";
+const byte whiteButtonAddress[6]  = "00006";
 
 // Protocol Messages
 const char* MSG_RED = "RED";
 const char* MSG_BLUE = "BLUE";
 const char* MSG_GREEN = "GREEN";
-const char* MSG_WIN_RED = "WIN_RED";
-const char* MSG_WIN_BLUE = "WIN_BLUE";
-const char* MSG_WIN_GREEN = "WIN_GREEN";
+const char* MSG_WIN_RED    = "WIN_RED";
+const char* MSG_WIN_BLUE   = "WIN_BLUE";
+const char* MSG_WIN_GREEN  = "WIN_GREEN";
+const char* MSG_YELLOW     = "YELLOW";
+const char* MSG_WHITE      = "WHITE";
+const char* MSG_WIN_YELLOW = "WIN_YELLOW";
+const char* MSG_WIN_WHITE  = "WIN_WHITE";
 const char* MSG_GAME_RESET = "GAME_RESET";
 const char* MSG_SYSTEM_READY = "SYSTEM_READY";
 
@@ -32,9 +38,11 @@ struct Button {
 
 // Array of all buttons. Add new buttons here.
 Button buttons[] = {
-  {MSG_RED,   redButtonAddress,   4, MSG_WIN_RED,   "ЧЕРВОНИЙ"},
-  {MSG_BLUE,  blueButtonAddress,  5, MSG_WIN_BLUE,  "СИНІЙ"},
-  {MSG_GREEN, greenButtonAddress, 2, MSG_WIN_GREEN, "ЗЕЛЕНИЙ"}
+  {MSG_RED,    redButtonAddress,    4,  MSG_WIN_RED,    "ЧЕРВОНИЙ"},
+  {MSG_BLUE,   blueButtonAddress,   5,  MSG_WIN_BLUE,   "СИНІЙ"},
+  {MSG_GREEN,  greenButtonAddress,  2,  MSG_WIN_GREEN,  "ЗЕЛЕНИЙ"},
+  {MSG_YELLOW, yellowButtonAddress, A0, MSG_WIN_YELLOW, "ЖОВТИЙ"},
+  {MSG_WHITE,  whiteButtonAddress,  A1, MSG_WIN_WHITE,  "БІЛИЙ"}
 };
 
 const int numButtons = sizeof(buttons) / sizeof(buttons[0]);
@@ -178,7 +186,7 @@ void resetGame() {
   }
   
   Serial.println("=== НОВА ГРА ПОЧАЛАСЯ! ===");
-  Serial.println("Натисніть червону, синю або зелену кнопку!");
+  Serial.println("Натисніть червону, синю, зелену, жовту або білу кнопку!");
   
   delay(100);
   digitalWrite(statusLedPin, HIGH);

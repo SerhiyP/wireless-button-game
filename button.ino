@@ -18,6 +18,16 @@
 #define BUTTON_ADDRESS "00004"
 #define WIN_CONFIRMATION "WIN_GREEN"
 
+// --- YELLOW BUTTON ---
+// #define BUTTON_COLOR "YELLOW"
+// #define BUTTON_ADDRESS "00005"
+// #define WIN_CONFIRMATION "WIN_YELLOW"
+
+// --- WHITE BUTTON ---
+// #define BUTTON_COLOR "WHITE"
+// #define BUTTON_ADDRESS "00006"
+// #define WIN_CONFIRMATION "WIN_WHITE"
+
 // =================================================================================
 
 #include <SPI.h>
