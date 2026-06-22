@@ -4,54 +4,42 @@
 
 RF24 radio(9, 10);
 
-const byte displayAddress[6] = "00001";    // Display receives on this address
+const byte displayAddress[6] = "00001";  // Display receives on this address
 
-// Button Radio Addresses
-const byte redButtonAddress[6]    = "00002";
-const byte blueButtonAddress[6]   = "00003";
-const byte greenButtonAddress[6]  = "00004";
-const byte yellowButtonAddress[6] = "00005";
-const byte whiteButtonAddress[6]  = "00006";
+// Number of players supported. Button addresses run 00002 .. (00002 + NUM_PLAYERS - 1).
+const int NUM_PLAYERS = 12;
 
 // Protocol Messages
-const char* MSG_RED = "RED";
-const char* MSG_BLUE = "BLUE";
-const char* MSG_GREEN = "GREEN";
-const char* MSG_WIN_RED    = "WIN_RED";
-const char* MSG_WIN_BLUE   = "WIN_BLUE";
-const char* MSG_WIN_GREEN  = "WIN_GREEN";
-const char* MSG_YELLOW     = "YELLOW";
-const char* MSG_WHITE      = "WHITE";
-const char* MSG_WIN_YELLOW = "WIN_YELLOW";
-const char* MSG_WIN_WHITE  = "WIN_WHITE";
 const char* MSG_GAME_RESET = "GAME_RESET";
 const char* MSG_SYSTEM_READY = "SYSTEM_READY";
 
-// Struct to hold all info for a button
-struct Button {
-  const char* name;
-  const byte* address;
-  int ledPin;
-  const char* winMessage;
-  const char* displayName;
+// =================================================================================
+// 2-digit 7-segment display via 2x 74HC595 (same wiring as numbers.ino)
+// =================================================================================
+const int dataPin = 2;   // DS
+const int clockPin = 3;   // SH_CP
+const int latchPin = 4;   // ST_CP
+
+// Segment table A-G (no DP)
+const byte numberTable[10] = {
+  0b00111111, // 0
+  0b00000110, // 1
+  0b01011011, // 2
+  0b01001111, // 3
+  0b01100110, // 4
+  0b01101101, // 5
+  0b01111101, // 6
+  0b00000111, // 7
+  0b01111111, // 8
+  0b01101111  // 9
 };
 
-// Array of all buttons. Add new buttons here.
-Button buttons[] = {
-  {MSG_RED,    redButtonAddress,    4,  MSG_WIN_RED,    "ЧЕРВОНИЙ"},
-  {MSG_BLUE,   blueButtonAddress,   5,  MSG_WIN_BLUE,   "СИНІЙ"},
-  {MSG_GREEN,  greenButtonAddress,  2,  MSG_WIN_GREEN,  "ЗЕЛЕНИЙ"},
-  {MSG_YELLOW, yellowButtonAddress, A0, MSG_WIN_YELLOW, "ЖОВТИЙ"},
-  {MSG_WHITE,  whiteButtonAddress,  A1, MSG_WIN_WHITE,  "БІЛИЙ"}
-};
-
-const int numButtons = sizeof(buttons) / sizeof(buttons[0]);
+const byte SEG_BLANK = 0x00;  // all segments off
+const byte SEG_DASH  = 0x40;  // segment G only
+const byte SEG_E     = 0x79;  // letter E
 
 // Pin Definitions
 const int resetPin = 6;
-const int statusLedPin = 7;
-const int readyLedPin = 3;
-const int connectionLedPin = 8;
 
 bool winnerChosen = false;
 char incoming[16];
@@ -63,98 +51,114 @@ unsigned long gameEndTime = 0;
 bool gameActive = false;
 bool systemReady = false;
 
-void setup() {
-  for (int i = 0; i < numButtons; i++) {
-    pinMode(buttons[i].ledPin, OUTPUT);
-  }
-  
-  pinMode(resetPin, INPUT_PULLUP);
-  pinMode(statusLedPin, OUTPUT);
-  pinMode(readyLedPin, OUTPUT);
-  pinMode(connectionLedPin, OUTPUT);
+// --- Display helpers ----------------------------------------------------------
+// Writes the two digit segment patterns. If the digits appear swapped/reversed
+// on the physical module, swap the order of the two shiftOut() calls below.
+void writeDigits(byte left, byte right) {
+  digitalWrite(latchPin, LOW);
+  shiftOut(dataPin, clockPin, MSBFIRST, right);
+  shiftOut(dataPin, clockPin, MSBFIRST, left);
+  digitalWrite(latchPin, HIGH);
+}
 
-  for (int i = 0; i < numButtons; i++) {
-    digitalWrite(buttons[i].ledPin, LOW);
-  }
-  digitalWrite(statusLedPin, LOW);
-  digitalWrite(readyLedPin, LOW);
-  digitalWrite(connectionLedPin, LOW);
+void showBlank() {
+  writeDigits(SEG_BLANK, SEG_BLANK);
+}
+
+void showDashes() {
+  writeDigits(SEG_DASH, SEG_DASH);
+}
+
+void showNumber(int n) {
+  writeDigits(numberTable[(n / 10) % 10], numberTable[n % 10]);
+}
+
+void showError(int code) {
+  writeDigits(SEG_E, numberTable[code % 10]);
+}
+
+// --- Identity derivation from player number -----------------------------------
+void addrFor(int n, char* out) {
+  snprintf(out, 6, "%05d", n + 1);  // player 1 -> "00002"
+}
+
+void winMsgFor(int n, char* out) {
+  snprintf(out, 16, "WIN_%d", n);   // player 1 -> "WIN_1"
+}
+
+void setup() {
+  pinMode(dataPin, OUTPUT);
+  pinMode(clockPin, OUTPUT);
+  pinMode(latchPin, OUTPUT);
+  pinMode(resetPin, INPUT_PULLUP);
+
+  showBlank();
 
   Serial.begin(9600);
   Serial.println("Display Unit Starting...");
 
-  digitalWrite(connectionLedPin, HIGH);
-  delay(100);
-  digitalWrite(connectionLedPin, LOW);
-  delay(100);
-
   if (!radio.begin()) {
     Serial.println("Radio initialization failed!");
-    while(1) {
-      digitalWrite(statusLedPin, HIGH);
-      digitalWrite(connectionLedPin, HIGH);
-      delay(100);
-      digitalWrite(statusLedPin, LOW);
-      digitalWrite(connectionLedPin, LOW);
-      delay(100);
+    while (1) {
+      showError(1);
+      delay(300);
+      showBlank();
+      delay(300);
     }
   }
 
   radio.setPALevel(RF24_PA_LOW);
-  radio.setRetries(5, 15);  // 1500µs delay, 15 retries for reliable communication
+  radio.setRetries(5, 15);  // 1500us delay, 15 retries for reliable communication
   radio.openReadingPipe(0, displayAddress);
   radio.startListening();
-  
-  digitalWrite(connectionLedPin, HIGH);
-  digitalWrite(statusLedPin, HIGH);
-  
+
   broadcastSystemReady();
   systemReady = true;
-  
+
+  showBlank();
   Serial.println("Display Unit Ready! Press reset to start game.");
 }
 
-void handleWinner(const Button& winner) {
-    digitalWrite(winner.ledPin, HIGH);
-    winnerChosen = true;
-    gameEndTime = millis();
-    
-    // Small delay to allow the button to switch back to listening mode
-    // after it sent its button press message
-    delay(500);
-    
-    sendMessage(winner.address, winner.winMessage);
-    unsigned long gameTime = gameEndTime - gameStartTime;
-    Serial.print(winner.displayName);
-    Serial.print(" ПЕРЕМІГ! Час гри: ");
-    Serial.print(gameTime);
-    Serial.println(" мс");
+void handleWinner(int n) {
+  winnerChosen = true;
+  gameEndTime = millis();
+  showNumber(n);
+
+  // Small delay to allow the button to switch back to listening mode
+  // after it sent its button press message
+  delay(500);
+
+  char addr[6];
+  char winMsg[16];
+  addrFor(n, addr);
+  winMsgFor(n, winMsg);
+  sendMessage((const byte*)addr, winMsg);
+
+  unsigned long gameTime = gameEndTime - gameStartTime;
+  Serial.print("Player ");
+  Serial.print(n);
+  Serial.print(" WINS! Game time: ");
+  Serial.print(gameTime);
+  Serial.println(" ms");
 }
 
 void loop() {
   if (radio.available() && !winnerChosen && gameActive) {
     memset(incoming, 0, sizeof(incoming));
     radio.read(&incoming, sizeof(incoming));
-    
-    digitalWrite(connectionLedPin, LOW);
-    delay(10);
-    digitalWrite(connectionLedPin, HIGH);
-    
+
     Serial.print("Received: ");
     Serial.println(incoming);
 
-    bool knownMessage = false;
-    for (int i = 0; i < numButtons; i++) {
-      if (strcmp(incoming, buttons[i].name) == 0) {
-        handleWinner(buttons[i]);
-        knownMessage = true;
-        break;
-      }
-    }
-
-    if (!knownMessage) {
-      Serial.print("Невідоме повідомлення: ");
+    int n = atoi(incoming);
+    if (n >= 1 && n <= NUM_PLAYERS) {
+      handleWinner(n);
+    } else {
+      Serial.print("Invalid/unknown message: ");
       Serial.println(incoming);
+      showError(2);
+      delay(500);
+      showDashes();
     }
   }
 
@@ -162,40 +166,35 @@ void loop() {
     resetGame();
     lastResetTime = millis();
   }
-  
-  updateLEDs();
 }
 
 void resetGame() {
   // Clear any stale messages from the radio buffer
   radio.flush_rx();
-  
+
   winnerChosen = false;
   gameActive = true;
   gameStartTime = millis();
-  
-  for (int i = 0; i < numButtons; i++) {
-    digitalWrite(buttons[i].ledPin, LOW);
-  }
-  digitalWrite(statusLedPin, LOW);
-  digitalWrite(readyLedPin, HIGH);
-  
+
+  showDashes();
+
   // Send reset signal to all buttons
-  for (int i = 0; i < numButtons; i++) {
-    sendMessage(buttons[i].address, MSG_GAME_RESET);
+  for (int n = 1; n <= NUM_PLAYERS; n++) {
+    char addr[6];
+    addrFor(n, addr);
+    sendMessage((const byte*)addr, MSG_GAME_RESET);
   }
-  
-  Serial.println("=== НОВА ГРА ПОЧАЛАСЯ! ===");
-  Serial.println("Натисніть червону, синю, зелену, жовту або білу кнопку!");
-  
-  delay(100);
-  digitalWrite(statusLedPin, HIGH);
+
+  Serial.println("=== NEW GAME STARTED! ===");
+  Serial.println("Press any button!");
 }
 
 void broadcastSystemReady() {
   // Send SYSTEM_READY to all buttons individually
-  for (int i = 0; i < numButtons; i++) {
-    sendMessage(buttons[i].address, MSG_SYSTEM_READY);
+  for (int n = 1; n <= NUM_PLAYERS; n++) {
+    char addr[6];
+    addrFor(n, addr);
+    sendMessage((const byte*)addr, MSG_SYSTEM_READY);
     delay(50);
   }
   Serial.println("SYSTEM_READY signals sent to all buttons");
@@ -206,12 +205,7 @@ void sendMessage(const byte* address, const char* message) {
   radio.openWritingPipe(address);
   strcpy(outgoing, message);
 
-  digitalWrite(connectionLedPin, LOW);
-  delay(10);
-
   bool result = radio.write(&outgoing, sizeof(outgoing));
-
-  digitalWrite(connectionLedPin, HIGH);
 
   if (result) {
     Serial.print("Message sent to a button: ");
@@ -223,25 +217,4 @@ void sendMessage(const byte* address, const char* message) {
 
   radio.startListening();
   delay(10);  // Allow radio to reset before next transmission
-}
-
-void updateLEDs() {
-  if (gameActive && !winnerChosen) {
-    digitalWrite(readyLedPin, HIGH);
-    if ((millis() / 200) % 2) {
-      digitalWrite(statusLedPin, HIGH);
-    } else {
-      digitalWrite(statusLedPin, LOW);
-    }
-  } else if (winnerChosen) {
-    digitalWrite(statusLedPin, HIGH);
-    if ((millis() / 300) % 2) {
-      digitalWrite(readyLedPin, HIGH);
-    } else {
-      digitalWrite(readyLedPin, LOW);
-    }
-  } else {
-    digitalWrite(readyLedPin, LOW);
-    digitalWrite(statusLedPin, HIGH);
-  }
 }

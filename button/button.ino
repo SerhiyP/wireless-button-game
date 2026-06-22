@@ -1,32 +1,10 @@
 // =================================================================================
 // ==CONFIGURATION==
-// Un-comment the block for the button you want to upload this sketch to.
+// Set BUTTON_ID to this button's player number (1..12) before uploading.
+// Everything else (radio address, sent value, win message) is derived from it.
 // =================================================================================
 
-// --- RED BUTTON ---
-// #define BUTTON_COLOR "RED"
-// #define BUTTON_ADDRESS "00002"
-// #define WIN_CONFIRMATION "WIN_RED"
-
-// --- BLUE BUTTON ---
-#define BUTTON_COLOR "BLUE"
-#define BUTTON_ADDRESS "00003"
-#define WIN_CONFIRMATION "WIN_BLUE"
-
-// --- GREEN BUTTON ---
-//#define BUTTON_COLOR "GREEN"
-//#define BUTTON_ADDRESS "00004"
-//#define WIN_CONFIRMATION "WIN_GREEN"
-
-// --- YELLOW BUTTON ---
-//  #define BUTTON_COLOR "YELLOW"
-//  #define BUTTON_ADDRESS "00005"
-//  #define WIN_CONFIRMATION "WIN_YELLOW"
-
-// --- WHITE BUTTON ---
-// #define BUTTON_COLOR "WHITE"
-// #define BUTTON_ADDRESS "00006"
-// #define WIN_CONFIRMATION "WIN_WHITE"
+#define BUTTON_ID 1
 
 // =================================================================================
 
@@ -34,14 +12,19 @@
 #include <nRF24L01.h>
 #include <RF24.h>
 
-#ifndef BUTTON_COLOR
-#error "Button configuration is not defined. Please un-comment one of the button blocks above."
+#ifndef BUTTON_ID
+#error "Button configuration is not defined. Please set BUTTON_ID to a number 1..12."
 #endif
+
+#define STR_(x) #x
+#define STR(x) STR_(x)
+#define BUTTON_NUMBER STR(BUTTON_ID)            // "1" .. "12"   (value sent to display)
+#define WIN_CONFIRMATION "WIN_" STR(BUTTON_ID)  // "WIN_1" .. "WIN_12"
 
 RF24 radio(9, 10);
 
 const byte displayAddress[6] = "00001";
-const byte deviceAddress[6] = BUTTON_ADDRESS;
+byte deviceAddress[6];  // derived from BUTTON_ID in setup(): "00002" .. "00013"
 
 const int buttonPin = 2;
 const int winnerLedPin = 4;
@@ -69,8 +52,13 @@ void setup() {
   digitalWrite(connectionLedPin, LOW);
 
   Serial.begin(9600);
-  Serial.print(BUTTON_COLOR);
-  Serial.println(" Button Transmitter Starting...");
+
+  // Derive this button's radio address from its ID: player 1 -> "00002", etc.
+  snprintf((char*)deviceAddress, sizeof(deviceAddress), "%05d", BUTTON_ID + 1);
+
+  Serial.print("Button ");
+  Serial.print(BUTTON_NUMBER);
+  Serial.println(" Transmitter Starting...");
 
   digitalWrite(connectionLedPin, HIGH);
   delay(100);
@@ -99,8 +87,9 @@ void setup() {
 
   waitForSystemReady();
 
-  Serial.print(BUTTON_COLOR);
-  Serial.println(" Button Ready!");
+  Serial.print("Button ");
+  Serial.print(BUTTON_NUMBER);
+  Serial.println(" Ready!");
 }
 
 void loop() {
@@ -198,10 +187,10 @@ void resetForNewGame() {
 void sendButtonPress() {
   radio.stopListening();
   radio.openWritingPipe(displayAddress);  // re-assert TX address so the ACK returns on pipe 0
-  strcpy(outgoing, BUTTON_COLOR);
+  strcpy(outgoing, BUTTON_NUMBER);
 
   Serial.print("Sending ");
-  Serial.print(BUTTON_COLOR);
+  Serial.print(BUTTON_NUMBER);
   Serial.println(" signal...");
 
   digitalWrite(connectionLedPin, LOW);
@@ -216,11 +205,11 @@ void sendButtonPress() {
   sent = true;
 
   if (result) {
-    Serial.print(BUTTON_COLOR);
+    Serial.print(BUTTON_NUMBER);
     Serial.println(" signal sent successfully!");
   } else {
     Serial.print("Failed to send ");
-    Serial.print(BUTTON_COLOR);
+    Serial.print(BUTTON_NUMBER);
     Serial.println(" signal!");
   }
 
