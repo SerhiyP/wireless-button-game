@@ -9,9 +9,9 @@
 // #define WIN_CONFIRMATION "WIN_RED"
 
 // --- BLUE BUTTON ---
-// #define BUTTON_COLOR "BLUE"
-// #define BUTTON_ADDRESS "00003"
-// #define WIN_CONFIRMATION "WIN_BLUE"
+#define BUTTON_COLOR "BLUE"
+#define BUTTON_ADDRESS "00003"
+#define WIN_CONFIRMATION "WIN_BLUE"
 
 // --- GREEN BUTTON ---
 //#define BUTTON_COLOR "GREEN"
@@ -19,9 +19,9 @@
 //#define WIN_CONFIRMATION "WIN_GREEN"
 
 // --- YELLOW BUTTON ---
- #define BUTTON_COLOR "YELLOW"
- #define BUTTON_ADDRESS "00005"
- #define WIN_CONFIRMATION "WIN_YELLOW"
+//  #define BUTTON_COLOR "YELLOW"
+//  #define BUTTON_ADDRESS "00005"
+//  #define WIN_CONFIRMATION "WIN_YELLOW"
 
 // --- WHITE BUTTON ---
 // #define BUTTON_COLOR "WHITE"
@@ -56,8 +56,6 @@ char incoming[16];
 char outgoing[16];
 unsigned long lastDebounceTime = 0;
 unsigned long debounceDelay = 50;
-unsigned long lastTransmissionTime = 0;
-unsigned long transmissionTimeout = 5000;
 unsigned long systemReadyTimeout = 10000;
 
 void setup() {
@@ -122,11 +120,6 @@ void loop() {
     }
 
     buttonPressed = reading;
-
-    if (sent && (millis() - lastTransmissionTime > transmissionTimeout)) {
-      Serial.println("Resetting after timeout...");
-      sent = false;
-    }
   }
 
   updateLEDs();
@@ -204,6 +197,7 @@ void resetForNewGame() {
 
 void sendButtonPress() {
   radio.stopListening();
+  radio.openWritingPipe(displayAddress);  // re-assert TX address so the ACK returns on pipe 0
   strcpy(outgoing, BUTTON_COLOR);
 
   Serial.print("Sending ");
@@ -217,17 +211,20 @@ void sendButtonPress() {
 
   digitalWrite(connectionLedPin, HIGH);
 
+  // Latch on attempt: one press = one transmission, locked until GAME_RESET.
+  // The display is the authority on who won; a missed ACK should still lock us out.
+  sent = true;
+
   if (result) {
     Serial.print(BUTTON_COLOR);
     Serial.println(" signal sent successfully!");
-    sent = true;
-    lastTransmissionTime = millis();
   } else {
     Serial.print("Failed to send ");
     Serial.print(BUTTON_COLOR);
     Serial.println(" signal!");
   }
 
+  radio.openReadingPipe(0, deviceAddress);  // restore reading address before listening again
   radio.startListening();
 }
 
