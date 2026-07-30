@@ -1,10 +1,10 @@
 // =================================================================================
 // ==CONFIGURATION==
-// Set BUTTON_ID to this button's player number (1..12) before uploading.
+// Set BUTTON_ID to this button's player number (0..11) before uploading.
 // Everything else (radio address, sent value, win message) is derived from it.
 // =================================================================================
 
-#define BUTTON_ID 1
+#define BUTTON_ID 3
 
 // =================================================================================
 
@@ -13,13 +13,13 @@
 #include <RF24.h>
 
 #ifndef BUTTON_ID
-#error "Button configuration is not defined. Please set BUTTON_ID to a number 1..12."
+#error "Button configuration is not defined. Please set BUTTON_ID to a number 0..11."
 #endif
 
 #define STR_(x) #x
 #define STR(x) STR_(x)
-#define BUTTON_NUMBER STR(BUTTON_ID)            // "1" .. "12"   (value sent to display)
-#define WIN_CONFIRMATION "WIN_" STR(BUTTON_ID)  // "WIN_1" .. "WIN_12"
+#define BUTTON_NUMBER STR(BUTTON_ID)            // "0" .. "11"   (value sent to display)
+#define WIN_CONFIRMATION "WIN_" STR(BUTTON_ID)  // "WIN_0" .. "WIN_11"
 
 RF24 radio(9, 10);
 
@@ -53,8 +53,8 @@ void setup() {
 
   Serial.begin(9600);
 
-  // Derive this button's radio address from its ID: player 1 -> "00002", etc.
-  snprintf((char*)deviceAddress, sizeof(deviceAddress), "%05d", BUTTON_ID + 1);
+  // Derive this button's radio address from its ID: player 0 -> "00002", etc.
+  snprintf((char*)deviceAddress, sizeof(deviceAddress), "%05d", BUTTON_ID + 2);
 
   Serial.print("Button ");
   Serial.print(BUTTON_NUMBER);

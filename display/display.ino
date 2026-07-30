@@ -6,7 +6,8 @@ RF24 radio(9, 10);
 
 const byte displayAddress[6] = "00001";  // Display receives on this address
 
-// Number of players supported. Button addresses run 00002 .. (00002 + NUM_PLAYERS - 1).
+// Number of players supported. Player numbers run 0 .. (NUM_PLAYERS - 1);
+// button addresses run 00002 .. (00002 + NUM_PLAYERS - 1).
 const int NUM_PLAYERS = 12;
 
 // Protocol Messages
@@ -90,7 +91,7 @@ void runDisplayTest() {
 
 // --- Identity derivation from player number -----------------------------------
 void addrFor(int n, char* out) {
-  snprintf(out, 6, "%05d", n + 1);  // player 1 -> "00002"
+  snprintf(out, 6, "%05d", n + 2);  // player 0 -> "00002"
 }
 
 void winMsgFor(int n, char* out) {
@@ -164,7 +165,7 @@ void loop() {
     Serial.println(incoming);
 
     int n = atoi(incoming);
-    if (n >= 1 && n <= NUM_PLAYERS) {
+    if (n >= 0 && n < NUM_PLAYERS) {
       handleWinner(n);
     } else {
       Serial.print("Invalid/unknown message: ");
@@ -192,7 +193,7 @@ void resetGame() {
   showDashes();
 
   // Send reset signal to all buttons
-  for (int n = 1; n <= NUM_PLAYERS; n++) {
+  for (int n = 0; n < NUM_PLAYERS; n++) {
     char addr[6];
     addrFor(n, addr);
     sendMessage((const byte*)addr, MSG_GAME_RESET);
@@ -204,7 +205,7 @@ void resetGame() {
 
 void broadcastSystemReady() {
   // Send SYSTEM_READY to all buttons individually
-  for (int n = 1; n <= NUM_PLAYERS; n++) {
+  for (int n = 0; n < NUM_PLAYERS; n++) {
     char addr[6];
     addrFor(n, addr);
     sendMessage((const byte*)addr, MSG_SYSTEM_READY);
