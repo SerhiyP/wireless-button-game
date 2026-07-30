@@ -16,9 +16,9 @@ const char* MSG_SYSTEM_READY = "SYSTEM_READY";
 // =================================================================================
 // 2-digit 7-segment display via 2x 74HC595 (same wiring as numbers.ino)
 // =================================================================================
-const int dataPin = 2;   // DS
-const int clockPin = 3;   // SH_CP
-const int latchPin = 4;   // ST_CP
+const int dataPin = 4;   // DS
+const int clockPin = 5;   // SH_CP
+const int latchPin = 7;   // ST_CP
 
 // Segment table A-G (no DP)
 const byte numberTable[10] = {
@@ -77,6 +77,17 @@ void showError(int code) {
   writeDigits(SEG_E, numberTable[code % 10]);
 }
 
+void runDisplayTest() {
+  Serial.println("Running display self-test...");
+  for (int d = 0; d <= 9; d++) {
+    writeDigits(numberTable[d], numberTable[d]);
+    delay(150);
+  }
+  showDashes();
+  delay(150);
+  showBlank();
+}
+
 // --- Identity derivation from player number -----------------------------------
 void addrFor(int n, char* out) {
   snprintf(out, 6, "%05d", n + 1);  // player 1 -> "00002"
@@ -97,6 +108,8 @@ void setup() {
   Serial.begin(9600);
   Serial.println("Display Unit Starting...");
 
+  runDisplayTest();
+
   if (!radio.begin()) {
     Serial.println("Radio initialization failed!");
     while (1) {
@@ -115,7 +128,7 @@ void setup() {
   broadcastSystemReady();
   systemReady = true;
 
-  showBlank();
+  showDashes();
   Serial.println("Display Unit Ready! Press reset to start game.");
 }
 
