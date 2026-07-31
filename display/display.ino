@@ -51,6 +51,7 @@ unsigned long gameStartTime = 0;
 unsigned long gameEndTime = 0;
 bool gameActive = false;
 bool systemReady = false;
+bool ignoredAvailableLogged = false;
 
 // --- Display helpers ----------------------------------------------------------
 // Writes the two digit segment patterns. If the digits appear swapped/reversed
@@ -126,6 +127,12 @@ void setup() {
   radio.openReadingPipe(0, displayAddress);
   radio.startListening();
 
+  Serial.print("Radio initialized, listening on ");
+  Serial.print((const char*)displayAddress);
+  Serial.print(" for ");
+  Serial.print(NUM_PLAYERS);
+  Serial.println(" players");
+
   broadcastSystemReady();
   systemReady = true;
 
@@ -157,9 +164,19 @@ void handleWinner(int n) {
 }
 
 void loop() {
+  if (radio.available() && (winnerChosen || !gameActive) && !ignoredAvailableLogged) {
+    Serial.print("Radio data available but ignored (winnerChosen=");
+    Serial.print(winnerChosen);
+    Serial.print(", gameActive=");
+    Serial.print(gameActive);
+    Serial.println(") - left in RX buffer");
+    ignoredAvailableLogged = true;
+  }
+
   if (radio.available() && !winnerChosen && gameActive) {
     memset(incoming, 0, sizeof(incoming));
     radio.read(&incoming, sizeof(incoming));
+    ignoredAvailableLogged = false;
 
     Serial.print("Received: ");
     Serial.println(incoming);
@@ -222,10 +239,14 @@ void sendMessage(const byte* address, const char* message) {
   bool result = radio.write(&outgoing, sizeof(outgoing));
 
   if (result) {
-    Serial.print("Message sent to a button: ");
+    Serial.print("Message sent to ");
+    Serial.print((const char*)address);
+    Serial.print(": ");
     Serial.println(message);
   } else {
-    Serial.print("Failed to send message to a button: ");
+    Serial.print("Failed to send message to ");
+    Serial.print((const char*)address);
+    Serial.print(": ");
     Serial.println(message);
   }
 

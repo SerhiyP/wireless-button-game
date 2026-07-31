@@ -35,6 +35,7 @@ bool sent = false;
 bool buttonPressed = false;
 bool systemReady = false;
 bool winner = false;
+bool ignoredPressLogged = false;
 char incoming[16];
 char outgoing[16];
 unsigned long lastDebounceTime = 0;
@@ -59,6 +60,10 @@ void setup() {
   Serial.print("Button ");
   Serial.print(BUTTON_NUMBER);
   Serial.println(" Transmitter Starting...");
+  Serial.print("Device address: ");
+  Serial.println((char*)deviceAddress);
+  Serial.print("Win confirmation message: ");
+  Serial.println(WIN_CONFIRMATION);
 
   digitalWrite(connectionLedPin, HIGH);
   delay(100);
@@ -82,6 +87,8 @@ void setup() {
   radio.openWritingPipe(displayAddress);
   radio.openReadingPipe(0, deviceAddress);
   radio.startListening();
+
+  Serial.println("Radio initialized, listening for SYSTEM_READY...");
 
   digitalWrite(connectionLedPin, HIGH);
 
@@ -109,6 +116,15 @@ void loop() {
     }
 
     buttonPressed = reading;
+  } else if (digitalRead(buttonPin) == LOW && !ignoredPressLogged) {
+    Serial.print("Button press ignored (systemReady=");
+    Serial.print(systemReady);
+    Serial.print(", winner=");
+    Serial.print(winner);
+    Serial.println(")");
+    ignoredPressLogged = true;
+  } else if (digitalRead(buttonPin) == HIGH) {
+    ignoredPressLogged = false;
   }
 
   updateLEDs();
@@ -173,6 +189,9 @@ void checkForMessages() {
         digitalWrite(readyLedPin, HIGH);
         Serial.println("SYSTEM_READY received! Button is now active.");
       }
+    } else {
+      Serial.print("Unknown message received: ");
+      Serial.println(incoming);
     }
   }
 }
