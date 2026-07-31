@@ -1,10 +1,10 @@
 // =================================================================================
 // ==CONFIGURATION==
-// Set BUTTON_ID to this button's player number (0..11) before uploading.
+// Set BUTTON_ID to this button's player number (0..9) before uploading.
 // Everything else (radio address, sent value, win message) is derived from it.
 // =================================================================================
 
-#define BUTTON_ID 3
+#define BUTTON_ID 1
 
 // =================================================================================
 
@@ -13,18 +13,18 @@
 #include <RF24.h>
 
 #ifndef BUTTON_ID
-#error "Button configuration is not defined. Please set BUTTON_ID to a number 0..11."
+#error "Button configuration is not defined. Please set BUTTON_ID to a number 0..9."
 #endif
 
 #define STR_(x) #x
 #define STR(x) STR_(x)
-#define BUTTON_NUMBER STR(BUTTON_ID)            // "0" .. "11"   (value sent to display)
-#define WIN_CONFIRMATION "WIN_" STR(BUTTON_ID)  // "WIN_0" .. "WIN_11"
+#define BUTTON_NUMBER STR(BUTTON_ID)            // "0" .. "9"   (value sent to display)
+#define WIN_CONFIRMATION "WIN_" STR(BUTTON_ID)  // "WIN_0" .. "WIN_9"
 
 RF24 radio(9, 10);
 
 const byte displayAddress[6] = "00001";
-byte deviceAddress[6];  // derived from BUTTON_ID in setup(): "00002" .. "00013"
+byte deviceAddress[6];  // derived from BUTTON_ID in setup(): "00002" .. "00011"
 
 const int buttonPin = 2;
 const int winnerLedPin = 4;

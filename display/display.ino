@@ -8,18 +8,20 @@ const byte displayAddress[6] = "00001";  // Display receives on this address
 
 // Number of players supported. Player numbers run 0 .. (NUM_PLAYERS - 1);
 // button addresses run 00002 .. (00002 + NUM_PLAYERS - 1).
-const int NUM_PLAYERS = 12;
+const int NUM_PLAYERS = 10;
 
 // Protocol Messages
 const char* MSG_GAME_RESET = "GAME_RESET";
 const char* MSG_SYSTEM_READY = "SYSTEM_READY";
 
 // =================================================================================
-// 2-digit 7-segment display via 2x 74HC595 (same wiring as numbers.ino)
+// Single 7-segment digit via 1x 74HC595. writeDigits() still takes two bytes for
+// compatibility with showNumber()/showError(), but only the `right` byte (shifted
+// in last) actually reaches the one physical register — see writeDigits() below.
 // =================================================================================
 const int dataPin = 4;   // DS
+const int latchPin = 2;   // ST_CP
 const int clockPin = 5;   // SH_CP
-const int latchPin = 7;   // ST_CP
 
 // Segment table A-G (no DP)
 const byte numberTable[10] = {
@@ -54,12 +56,14 @@ bool systemReady = false;
 bool ignoredAvailableLogged = false;
 
 // --- Display helpers ----------------------------------------------------------
-// Writes the two digit segment patterns. If the digits appear swapped/reversed
-// on the physical module, swap the order of the two shiftOut() calls below.
+// Writes the two digit segment patterns. Only one 74HC595 is physically wired,
+// so only the last byte shifted in (right) actually ends up latched and shown;
+// `left` is sent first so it gets pushed out and discarded. showNumber()/showError()
+// rely on this: the meaningful digit must always be passed as `right`.
 void writeDigits(byte left, byte right) {
   digitalWrite(latchPin, LOW);
-  shiftOut(dataPin, clockPin, MSBFIRST, right);
   shiftOut(dataPin, clockPin, MSBFIRST, left);
+  shiftOut(dataPin, clockPin, MSBFIRST, right);
   digitalWrite(latchPin, HIGH);
 }
 
