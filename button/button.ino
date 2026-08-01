@@ -20,6 +20,7 @@
 #define STR(x) STR_(x)
 #define BUTTON_NUMBER STR(BUTTON_ID)            // "0" .. "9"   (value sent to display)
 #define WIN_CONFIRMATION "WIN_" STR(BUTTON_ID)  // "WIN_0" .. "WIN_9"
+#define PING_MESSAGE "PING_" STR(BUTTON_ID)     // "PING_0" .. "PING_9"
 
 RF24 radio(9, 10);
 
@@ -40,7 +41,8 @@ char incoming[16];
 char outgoing[16];
 unsigned long lastDebounceTime = 0;
 unsigned long debounceDelay = 50;
-unsigned long systemReadyTimeout = 10000;
+unsigned long lastPingTime = 0;
+unsigned long pingInterval = 1000;
 
 void setup() {
   pinMode(buttonPin, INPUT_PULLUP);
@@ -88,19 +90,17 @@ void setup() {
   radio.openReadingPipe(0, deviceAddress);
   radio.startListening();
 
-  Serial.println("Radio initialized, listening for SYSTEM_READY...");
+  Serial.println("Radio initialized, pinging display until it answers...");
 
   digitalWrite(connectionLedPin, HIGH);
-
-  waitForSystemReady();
-
-  Serial.print("Button ");
-  Serial.print(BUTTON_NUMBER);
-  Serial.println(" Ready!");
 }
 
 void loop() {
   checkForMessages();
+
+  if (!systemReady && (lastPingTime == 0 || millis() - lastPingTime >= pingInterval)) {
+    pingDisplay();
+  }
 
   if (systemReady && !winner) {
     int reading = digitalRead(buttonPin);
@@ -130,41 +130,39 @@ void loop() {
   updateLEDs();
 }
 
-void waitForSystemReady() {
-  Serial.println("Waiting for SYSTEM_READY signal...");
-  unsigned long startTime = millis();
+// Actively probe the display instead of waiting to be told the system is up: the
+// display cannot know when a button powers on (or gets reset by opening the Serial
+// Monitor), but a button can always ask.
+//
+// A successful write only means the display's radio auto-ACKed in hardware, which
+// says nothing about whether its firmware is running. So readiness waits for the
+// SYSTEM_READY reply instead - only the display's main loop can send that, and only
+// between rounds. checkForMessages() picks it up and calls markReady().
+void pingDisplay() {
+  lastPingTime = millis();
 
-  while (!systemReady && (millis() - startTime < systemReadyTimeout)) {
-    if (radio.available()) {
-      memset(incoming, 0, sizeof(incoming));
-      radio.read(&incoming, sizeof(incoming));
+  radio.stopListening();
+  radio.openWritingPipe(displayAddress);  // re-assert TX address so the ACK returns on pipe 0
+  strcpy(outgoing, PING_MESSAGE);
 
-      digitalWrite(connectionLedPin, LOW);
-      delay(10);
-      digitalWrite(connectionLedPin, HIGH);
+  bool result = radio.write(&outgoing, sizeof(outgoing));
 
-      if (strcmp(incoming, "SYSTEM_READY") == 0) {
-        systemReady = true;
-        digitalWrite(readyLedPin, HIGH);
-        Serial.println("SYSTEM_READY received! Button is now active.");
-        break;
-      }
-    }
+  radio.openReadingPipe(0, deviceAddress);  // restore reading address before listening again
+  radio.startListening();
 
-    if ((millis() / 500) % 2) {
-      digitalWrite(readyLedPin, HIGH);
-    } else {
-      digitalWrite(readyLedPin, LOW);
-    }
-
-    delay(10);
+  if (result) {
+    Serial.println("Ping delivered, waiting for SYSTEM_READY...");
+  } else {
+    Serial.println("No answer from display, retrying...");
   }
+}
 
-  if (!systemReady) {
-    Serial.println("Timeout waiting for SYSTEM_READY - continuing anyway");
-    systemReady = true;
-    digitalWrite(readyLedPin, HIGH);
-  }
+void markReady() {
+  systemReady = true;
+  digitalWrite(readyLedPin, HIGH);
+  Serial.print("Button ");
+  Serial.print(BUTTON_NUMBER);
+  Serial.println(" Ready!");
 }
 
 void checkForMessages() {
@@ -185,9 +183,8 @@ void checkForMessages() {
       Serial.println("GAME_RESET received! Ready for new game.");
     } else if (strcmp(incoming, "SYSTEM_READY") == 0) {
       if (!systemReady) {
-        systemReady = true;
-        digitalWrite(readyLedPin, HIGH);
-        Serial.println("SYSTEM_READY received! Button is now active.");
+        Serial.println("SYSTEM_READY received!");
+        markReady();
       }
     } else {
       Serial.print("Unknown message received: ");
@@ -201,6 +198,14 @@ void resetForNewGame() {
   sent = false;
   digitalWrite(winnerLedPin, LOW);
   digitalWrite(readyLedPin, HIGH);
+
+  // GAME_RESET is broadcast from the display's main loop to every button as a round
+  // starts, so it also adopts a button that had not connected yet. Without this a
+  // button powered up during a round could never join: pings are deferred while a
+  // round is live, and the round only ends when someone presses.
+  if (!systemReady) {
+    markReady();
+  }
 }
 
 void sendButtonPress() {

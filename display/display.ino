@@ -13,6 +13,7 @@ const int NUM_PLAYERS = 10;
 // Protocol Messages
 const char* MSG_GAME_RESET = "GAME_RESET";
 const char* MSG_SYSTEM_READY = "SYSTEM_READY";
+const char* MSG_PING_PREFIX = "PING_";  // buttons send "PING_<n>" to discover the display
 
 // =================================================================================
 // Single 7-segment digit via 1x 74HC595. writeDigits() still takes two bytes for
@@ -49,11 +50,8 @@ char incoming[16];
 char outgoing[16];
 unsigned long lastResetTime = 0;
 unsigned long resetDebounceDelay = 300;
-unsigned long gameStartTime = 0;
-unsigned long gameEndTime = 0;
 bool gameActive = false;
 bool systemReady = false;
-bool ignoredAvailableLogged = false;
 
 // --- Display helpers ----------------------------------------------------------
 // Writes the two digit segment patterns. Only one 74HC595 is physically wired,
@@ -103,6 +101,38 @@ void winMsgFor(int n, char* out) {
   snprintf(out, 16, "WIN_%d", n);   // player 1 -> "WIN_1"
 }
 
+// Parse a player number the strict way. atoi() cannot signal failure - it returns 0
+// for anything unparseable, and 0 is a valid player number since numbering became
+// 0-based, so a corrupted or foreign packet would be read as a press by player 0.
+// Rejecting empty strings, non-digits and trailing junk keeps that from happening;
+// bailing out as soon as the value reaches NUM_PLAYERS also avoids overflowing the
+// 16-bit int on a long run of digits.
+bool parsePlayer(const char* s, int* out) {
+  if (*s == '\0') {
+    return false;
+  }
+
+  // Buttons send BUTTON_ID with no padding, so "07" is not something our own
+  // protocol can produce - only "0" itself may start with a zero.
+  if (s[0] == '0' && s[1] != '\0') {
+    return false;
+  }
+
+  int n = 0;
+  for (const char* p = s; *p; p++) {
+    if (*p < '0' || *p > '9') {
+      return false;
+    }
+    n = n * 10 + (*p - '0');
+    if (n >= NUM_PLAYERS) {
+      return false;
+    }
+  }
+
+  *out = n;
+  return true;
+}
+
 void setup() {
   pinMode(dataPin, OUTPUT);
   pinMode(clockPin, OUTPUT);
@@ -137,7 +167,8 @@ void setup() {
   Serial.print(NUM_PLAYERS);
   Serial.println(" players");
 
-  broadcastSystemReady();
+  // No startup broadcast: buttons discover us by pinging, which works no matter
+  // which device is powered up first.
   systemReady = true;
 
   showDashes();
@@ -146,7 +177,6 @@ void setup() {
 
 void handleWinner(int n) {
   winnerChosen = true;
-  gameEndTime = millis();
   showNumber(n);
 
   // Small delay to allow the button to switch back to listening mode
@@ -159,47 +189,83 @@ void handleWinner(int n) {
   winMsgFor(n, winMsg);
   sendMessage((const byte*)addr, winMsg);
 
-  unsigned long gameTime = gameEndTime - gameStartTime;
   Serial.print("Player ");
   Serial.print(n);
-  Serial.print(" WINS! Game time: ");
-  Serial.print(gameTime);
-  Serial.println(" ms");
+  Serial.println(" WINS!");
 }
 
 void loop() {
-  if (radio.available() && (winnerChosen || !gameActive) && !ignoredAvailableLogged) {
-    Serial.print("Radio data available but ignored (winnerChosen=");
-    Serial.print(winnerChosen);
-    Serial.print(", gameActive=");
-    Serial.print(gameActive);
-    Serial.println(") - left in RX buffer");
-    ignoredAvailableLogged = true;
-  }
-
-  if (radio.available() && !winnerChosen && gameActive) {
+  // Always drain the RX FIFO, even with no game running: it only holds three
+  // payloads, and buttons ping while idle, so leaving messages unread would
+  // fill it and block everything that follows.
+  if (radio.available()) {
     memset(incoming, 0, sizeof(incoming));
     radio.read(&incoming, sizeof(incoming));
-    ignoredAvailableLogged = false;
-
-    Serial.print("Received: ");
-    Serial.println(incoming);
-
-    int n = atoi(incoming);
-    if (n >= 0 && n < NUM_PLAYERS) {
-      handleWinner(n);
-    } else {
-      Serial.print("Invalid/unknown message: ");
-      Serial.println(incoming);
-      showError(2);
-      delay(500);
-      showDashes();
-    }
+    handleMessage(incoming);
   }
 
   if (digitalRead(resetPin) == LOW && (millis() - lastResetTime > resetDebounceDelay)) {
     resetGame();
     lastResetTime = millis();
+  }
+}
+
+// A round is live only between the reset press that starts it and the press that
+// wins it. gameActive alone is not enough: it stays true once the first round has
+// been started and is never cleared.
+bool roundInProgress() {
+  return gameActive && !winnerChosen;
+}
+
+// Buttons ping until the display answers. Adopt them only between rounds: the
+// reply puts the display into TX, and a press landing in that window would fail
+// its ACK and be locked out for the round by the button's one-shot latch. A late
+// button keeps pinging and joins as soon as the round ends.
+void handlePing(int n) {
+  if (!systemReady || roundInProgress()) {
+    Serial.print("Ping from player ");
+    Serial.print(n);
+    Serial.println(" - deferred");
+    return;
+  }
+
+  char addr[6];
+  addrFor(n, addr);
+  sendMessage((const byte*)addr, MSG_SYSTEM_READY);
+}
+
+void handleMessage(const char* msg) {
+  size_t pingLen = strlen(MSG_PING_PREFIX);
+  int n;
+
+  if (strncmp(msg, MSG_PING_PREFIX, pingLen) == 0) {
+    if (parsePlayer(msg + pingLen, &n)) {
+      handlePing(n);
+    } else {
+      Serial.print("Ping from unknown player: ");
+      Serial.println(msg);
+    }
+    return;
+  }
+
+  if (!roundInProgress()) {
+    Serial.print("Ignored (no round in progress): ");
+    Serial.println(msg);
+    return;
+  }
+
+  if (parsePlayer(msg, &n)) {
+    Serial.print("Received: ");
+    Serial.println(msg);
+    handleWinner(n);
+  } else {
+    // Decline anything that is not a player number, and do it without touching the
+    // display. Showing an error code here used to cost 500 ms with the receiver
+    // deaf, so a real press landing in that window failed its ACK and was locked
+    // out for the round by the button's one-shot latch. A stray packet must not be
+    // able to cost someone their press.
+    Serial.print("Declined: ");
+    Serial.println(msg);
   }
 }
 
@@ -209,7 +275,6 @@ void resetGame() {
 
   winnerChosen = false;
   gameActive = true;
-  gameStartTime = millis();
 
   showDashes();
 
@@ -222,17 +287,6 @@ void resetGame() {
 
   Serial.println("=== NEW GAME STARTED! ===");
   Serial.println("Press any button!");
-}
-
-void broadcastSystemReady() {
-  // Send SYSTEM_READY to all buttons individually
-  for (int n = 0; n < NUM_PLAYERS; n++) {
-    char addr[6];
-    addrFor(n, addr);
-    sendMessage((const byte*)addr, MSG_SYSTEM_READY);
-    delay(50);
-  }
-  Serial.println("SYSTEM_READY signals sent to all buttons");
 }
 
 void sendMessage(const byte* address, const char* message) {
