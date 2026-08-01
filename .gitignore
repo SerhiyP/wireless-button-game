@@ -1,1 +1,9 @@
 /.idea/
+
+# macOS
+.DS_Store
+
+# Arduino build output (IDE "Export compiled binary", arduino-cli --output-dir)
+/build/
+*.hex
+*.elf
