@@ -11,23 +11,22 @@ confirms to the winning button, and controls round reset.
 
 Players are identified by **number**, not colour (colours were removed in `acc6ff9`).
 
-The codebase is two Arduino sketches:
+The codebase is four Arduino sketches — two that are the game, two that are diagnostics:
 - **`button/button.ino`** — single configurable firmware uploaded to every button Nano
 - **`display/display.ino`** — firmware for the central receiver/display Nano
+- **`radio_check/radio_check.ino`** — nRF24 SPI/wiring diagnostic; run when `radio.begin()`
+  fails. Uses the same CE/CSN pins, so it drops onto any button or the display unchanged.
+- **`nano_check/nano_check.ino`** — Nano self-test with the radio module detached, to prove
+  or clear the board independently of the radio
 
 ## Building & Uploading
 
-The Arduino IDE is the normal workflow, but the IDE **does** bundle an `arduino-cli` that
-compiles from the terminal — useful for verifying changes without touching hardware:
+**Everything is built and uploaded from the Arduino IDE.** There is no working
+`arduino-cli` on this machine — earlier versions of this file pointed at one bundled inside
+`Arduino IDE.app`, and that path does not exist.
 
-```bash
-CLI="/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli"
-"$CLI" compile -b arduino:avr:nano --libraries ~/Documents/Arduino/libraries button
-"$CLI" compile -b arduino:avr:nano --libraries ~/Documents/Arduino/libraries display
-```
-
-This compiles only — it does not need a board attached and never uploads. Always run it
-after editing a sketch; there are no tests.
+This matters because there are no tests either. An edited sketch is **unverified** until it
+is built in the IDE, so say that plainly rather than implying a change compiles.
 
 **Prerequisites:** Arduino IDE, and the RF24 library (Library Manager → "RF24"), installed
 at `~/Documents/Arduino/libraries/RF24`.
@@ -155,3 +154,33 @@ hundred milliseconds after the dashes appear.
 **One press per round, by design.** `sent` latches on transmit attempt and only clears on
 `GAME_RESET`. The display is the authority on who won; a missed ACK must still lock the
 button out, otherwise a retry could arrive after another player has already won.
+
+## Hardware faults, and how not to misdiagnose them
+
+**`radio.begin()` returning false is always an SPI or power fault.** It writes `CONFIG`,
+reads it back and compares (`_init_radio()` in `RF24.cpp`). Nothing has transmitted at that
+point, so antenna, PA level, distance and the display are all irrelevant. Run `radio_check`
+before theorising.
+
+**A loose MISO reads as a clean echo of MOSI, not as noise.** D11 and D12 are adjacent, so
+a floating D12 capacitively follows whatever D11 drives — identical to a hard short, at
+every SPI clock speed. Varying the filler byte separates them: a chip that is really
+driving MISO returns the same value regardless. `nano_check` also holds MISO up through its
+internal pull-up so a loopback cannot fake a pass.
+
+**An attached nRF24 fakes a D10 ↔ D12 short.** Even unpowered, it ties its I/O pins
+together through the ESD diodes into its dead VDD rail, so driving CSN low drags MISO down.
+The cross-check is the pin baseline: a copper short forces *both* pins low, while an ESD
+path only conducts while a pin is actively driven. When the module cannot be unsoldered,
+run `nano_check` on a board known to work and compare — whatever appears on both is the
+module, not a fault.
+
+**Reversed VCC/GND destroys the module and leaves its inputs leaking.** A damaged CSN input
+pulls the line low, so the chip is never selected and never drives MISO, which presents as
+every SPI read failing. A healthy CSN is high-impedance and cannot pull anything low, so
+that is the signature. Measure +3.3 V across the wire ends *before* soldering a new module
+on, and check the decoupling capacitor if it is electrolytic.
+
+**Diagnose one variable at a time, and log which board you are on.** Most of the time lost
+on the first hunt went to conclusions drawn across runs where the module, the board, or a
+wire had changed in between.
