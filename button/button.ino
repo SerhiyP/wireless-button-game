@@ -33,19 +33,32 @@ const int readyLedPin = 3;
 const int connectionLedPin = 5;
 
 bool sent = false;
-bool buttonPressed = false;
 bool systemReady = false;
 bool winner = false;
-bool ignoredPressLogged = false;
 char incoming[16];
 char outgoing[16];
-unsigned long lastDebounceTime = 0;
-unsigned long debounceDelay = 50;
+volatile bool pressLatched = false;
+volatile unsigned long pressEdgeTime = 0;
+const unsigned long glitchConfirmDelay = 2;  // ms the pin must still be LOW after the edge
 unsigned long lastPingTime = 0;
 unsigned long pingInterval = 1000;
 
+// INT0 ISR (button is on pin 2): latch the press the moment the pin falls, even
+// while loop() is stuck in a radio call or a serial write. Confirmation, sending
+// and clearing all happen in loop(). Only the first edge is recorded - the later
+// edges of the same press are contact bounce. pressEdgeTime is written before
+// pressLatched so loop() can never see the flag without a valid timestamp; both
+// are volatile, which keeps that order.
+void onButtonFall() {
+  if (!pressLatched) {
+    pressEdgeTime = millis();
+    pressLatched = true;
+  }
+}
+
 void setup() {
   pinMode(buttonPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(buttonPin), onButtonFall, FALLING);
   pinMode(winnerLedPin, OUTPUT);
   pinMode(readyLedPin, OUTPUT);
   pinMode(connectionLedPin, OUTPUT);
@@ -102,32 +115,38 @@ void loop() {
     pingDisplay();
   }
 
-  if (systemReady && !winner) {
-    int reading = digitalRead(buttonPin);
+  if (pressLatched) {
+    handleLatchedPress();
+  }
 
-    if (reading != buttonPressed) {
-      lastDebounceTime = millis();
+  updateLEDs();
+}
+
+// A press is latched by the INT0 ISR on the falling edge and confirmed here: the
+// pin must still be LOW glitchConfirmDelay ms after the edge. A real press holds
+// the pin low for tens of milliseconds; a noise spike lasts microseconds and fails
+// the re-read. No further debounce is needed - the `sent` latch already limits the
+// round to one transmission, so bounce cannot double-send.
+void handleLatchedPress() {
+  if (systemReady && !winner && !sent) {
+    if (millis() - pressEdgeTime < glitchConfirmDelay) {
+      return;  // too early to tell press from glitch; check again next loop
     }
-
-    if ((millis() - lastDebounceTime) > debounceDelay) {
-      if (reading == LOW && !sent) {
-        sendButtonPress();
-      }
+    if (digitalRead(buttonPin) == LOW) {
+      sendButtonPress();
+    } else {
+      Serial.println("Discarded noise glitch on button pin");
     }
-
-    buttonPressed = reading;
-  } else if (digitalRead(buttonPin) == LOW && !ignoredPressLogged) {
+  } else {
     Serial.print("Button press ignored (systemReady=");
     Serial.print(systemReady);
     Serial.print(", winner=");
     Serial.print(winner);
+    Serial.print(", sent=");
+    Serial.print(sent);
     Serial.println(")");
-    ignoredPressLogged = true;
-  } else if (digitalRead(buttonPin) == HIGH) {
-    ignoredPressLogged = false;
   }
-
-  updateLEDs();
+  pressLatched = false;
 }
 
 // Actively probe the display instead of waiting to be told the system is up: the
@@ -196,6 +215,7 @@ void checkForMessages() {
 void resetForNewGame() {
   winner = false;
   sent = false;
+  pressLatched = false;  // a press latched while locked out must not fire into the new round
   digitalWrite(winnerLedPin, LOW);
   digitalWrite(readyLedPin, HIGH);
 
@@ -217,8 +237,9 @@ void sendButtonPress() {
   Serial.print(BUTTON_NUMBER);
   Serial.println(" signal...");
 
+  // Transmit immediately - no LED blink delay before the write, this is a race.
+  // The write itself (~1-22ms with retries) keeps the LED visibly off.
   digitalWrite(connectionLedPin, LOW);
-  delay(10);
 
   bool result = radio.write(&outgoing, sizeof(outgoing));
 

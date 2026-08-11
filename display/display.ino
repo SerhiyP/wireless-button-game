@@ -53,6 +53,12 @@ unsigned long resetDebounceDelay = 300;
 bool gameActive = false;
 bool systemReady = false;
 
+// True once player n has been heard from (ping or press). Only these slots get
+// GAME_RESET retries - an empty slot fails every send and would stretch the
+// broadcast's deaf window for nothing.
+bool connected[NUM_PLAYERS] = {false};
+int lastWinner = -1;
+
 // --- Display helpers ----------------------------------------------------------
 // Writes the two digit segment patterns. Only one 74HC595 is physically wired,
 // so only the last byte shifted in (right) actually ends up latched and shown;
@@ -177,6 +183,8 @@ void setup() {
 
 void handleWinner(int n) {
   winnerChosen = true;
+  lastWinner = n;
+  connected[n] = true;
   showNumber(n);
 
   // Small delay to allow the button to switch back to listening mode
@@ -222,6 +230,8 @@ bool roundInProgress() {
 // its ACK and be locked out for the round by the button's one-shot latch. A late
 // button keeps pinging and joins as soon as the round ends.
 void handlePing(int n) {
+  connected[n] = true;  // remember the button even when the reply is deferred
+
   if (!systemReady || roundInProgress()) {
     Serial.print("Ping from player ");
     Serial.print(n);
@@ -278,18 +288,49 @@ void resetGame() {
 
   showDashes();
 
-  // Send reset signal to all buttons
-  for (int n = 0; n < NUM_PLAYERS; n++) {
+  // Send reset to all buttons, previous winner first: it is the button with
+  // visible stale state (winner LED lit), and a fast new press racing the tail of
+  // this broadcast can jam later sends - both sides retry on the same 1500us
+  // schedule, so a collision tends to repeat until both give up.
+  bool pending[NUM_PLAYERS];
+  for (int i = 0; i < NUM_PLAYERS; i++) {
+    int n = (lastWinner >= 0) ? (lastWinner + i) % NUM_PLAYERS : i;
     char addr[6];
     addrFor(n, addr);
-    sendMessage((const byte*)addr, MSG_GAME_RESET);
+    pending[n] = !sendMessage((const byte*)addr, MSG_GAME_RESET);
+  }
+
+  // A button that misses GAME_RESET keeps last round's state (winner LED lit,
+  // press latched out), so failed sends must be retried, not dropped. Only
+  // connected slots are retried: an empty slot fails every time anyway.
+  for (int pass = 0; pass < 2; pass++) {
+    bool anyPending = false;
+    for (int n = 0; n < NUM_PLAYERS; n++) {
+      if (pending[n] && connected[n]) {
+        char addr[6];
+        addrFor(n, addr);
+        pending[n] = !sendMessage((const byte*)addr, MSG_GAME_RESET);
+        anyPending |= pending[n];
+      }
+    }
+    if (!anyPending) {
+      break;
+    }
+  }
+
+  for (int n = 0; n < NUM_PLAYERS; n++) {
+    if (pending[n] && connected[n]) {
+      Serial.print("WARNING: player ");
+      Serial.print(n);
+      Serial.println(" did not receive GAME_RESET - stale until next reset");
+    }
   }
 
   Serial.println("=== NEW GAME STARTED! ===");
   Serial.println("Press any button!");
 }
 
-void sendMessage(const byte* address, const char* message) {
+bool sendMessage(const byte* address, const char* message) {
   radio.stopListening();
   radio.openWritingPipe(address);
   strcpy(outgoing, message);
@@ -310,4 +351,6 @@ void sendMessage(const byte* address, const char* message) {
 
   radio.startListening();
   delay(10);  // Allow radio to reset before next transmission
+
+  return result;
 }

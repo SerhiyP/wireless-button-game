@@ -151,6 +151,23 @@ handling must not block and why pings are not answered mid-round. The `GAME_RESE
 broadcast in `resetGame()` still has this problem: the display is unreachable for a few
 hundred milliseconds after the dashes appear.
 
+**A press racing the `GAME_RESET` broadcast can jam it.** Button and display use the same
+`setRetries(5, 15)` timing, so once a press transmission collides on air with a
+`GAME_RESET` send, the retries stay synchronized and keep colliding until both sides give
+up. A button that misses `GAME_RESET` keeps last round's state — winner LED lit, `sent`
+still latched — until a later reset reaches it. `resetGame()` therefore sends to the
+previous winner first (the button with visible stale state), and retries failed sends up
+to two extra passes. Retries are limited to players marked `connected[]` (heard from via
+ping or press); empty slots fail every send and would only stretch the deaf window.
+
+**Button presses are captured by interrupt, not polling.** The button sits on pin 2, which
+is INT0 on the Nano; a FALLING-edge ISR latches the press and its timestamp, so a tap that
+lands while `loop()` is stuck in a radio call or a serial busy-wait is delayed, never lost.
+There is no 50 ms debounce: the `sent` latch already limits each round to one transmission,
+so bounce cannot double-send. The loop only re-reads the pin ~2 ms after the edge to reject
+sub-millisecond noise glitches — a false press would transmit and latch `sent`, costing
+that player the round (or falsely winning it). Keep the ISR trivial: flag + timestamp only.
+
 **One press per round, by design.** `sent` latches on transmit attempt and only clears on
 `GAME_RESET`. The display is the authority on who won; a missed ACK must still lock the
 button out, otherwise a retry could arrive after another player has already won.
